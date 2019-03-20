@@ -78,7 +78,7 @@ namespace MigrationGuide
             Console.WriteLine("");
             Console.WriteLine("These samples are to provide you examples of how to convert your existing Object Model code to use the new REST API in Work Item Tracking.");
             Console.WriteLine("");
-            Console.WriteLine("!!WARNING!! Some samples are destructive. Always run on a test account or collection.");
+            Console.WriteLine("!!WARNING!! Some samples are destructive. Always run on a test account or collection. Use of a project with an Agile work item process is recommended.");
             Console.WriteLine("");
             Console.WriteLine("Arguments:");
             Console.WriteLine("");

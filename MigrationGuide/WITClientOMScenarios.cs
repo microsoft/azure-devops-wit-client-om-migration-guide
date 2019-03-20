@@ -13,17 +13,18 @@ namespace MigrationGuide
         private TfsTeamProjectCollection TPC { get; }
         private Project TeamProject { get; }
         private HashSet<int> WorkItemsAdded { get; }
+        private readonly string DefaultCategoryReferenceName = "Microsoft.RequirementCategory";
+        private Category DefaultWorkItemTypeCategory { get; }
+        private WorkItemType DefaultWorkItemType { get; }
 
         public WITClientOMScenarios(string collectionUri, string project)
         {
             TPC = new TfsTeamProjectCollection(new Uri(collectionUri));
             WIStore = TPC.GetService<WorkItemStore>();
-            if (project != null)
-            {
-                TeamProject = WIStore.Projects[project];
-            }
-
+            TeamProject = WIStore.Projects[project];
             WorkItemsAdded = new HashSet<int>();
+            DefaultWorkItemTypeCategory = TeamProject.Categories[DefaultCategoryReferenceName];
+            DefaultWorkItemType = DefaultWorkItemTypeCategory.DefaultWorkItemType;
         }
 
         // Client OM Method: WorkItem()
@@ -34,19 +35,20 @@ namespace MigrationGuide
         public void CreateWorkItem()
         {
             // Construct a WorkItem
-            WorkItemType workItemType = TeamProject.WorkItemTypes["User Story"];
+            WorkItemType workItemType = TeamProject.WorkItemTypes[DefaultWorkItemType.Name];
 
             WorkItem wi = new WorkItem(workItemType)
             {
                 // Set the values of the required fields.
-                Title = "Work Item Created Using WIT OM"
+                Title = "Work Item Created Using WIT OM",                
             };
+
+            wi["System.AssignedTo"] = TPC.AuthorizedIdentity.DisplayName;
 
             // Save the WorkItem.
             wi.Save();
             WorkItemsAdded.Add(wi.Id);
             Console.WriteLine($"Created a work item with id:'{wi.Id}' and title: '{wi.Title}'");
-            wi.Close();
             Console.WriteLine();
         }
 
@@ -59,7 +61,6 @@ namespace MigrationGuide
         {
             var wi = WIStore.GetWorkItem(WorkItemsAdded.First());
             Console.WriteLine($"Opened a work item with id: '{wi.Id}' and title: '{wi.Title}'");
-            wi.Close();
             Console.WriteLine();
         }
 
@@ -70,8 +71,7 @@ namespace MigrationGuide
         [Obsolete]
         public void GetWorkItems()
         {
-            WorkItemType workItemType = TeamProject.WorkItemTypes["Bug"];
-            WorkItem wi = new WorkItem(workItemType)
+            WorkItem wi = new WorkItem(DefaultWorkItemType)
             {
                 Title = "Work Item Created Using WIT OM"
             };
@@ -80,9 +80,16 @@ namespace MigrationGuide
             wi.Close();
 
             var workItemsList = string.Join(",", WorkItemsAdded);
-            string queryByIdWiql = $"Select [System.Id], [System.Title], [System.State] From WorkItems Where [System.Id] In ({workItemsList})";
-            WorkItemCollection idQueryResults = WIStore.Query(queryByIdWiql);
-            Console.WriteLine($"Wiql query searching for work items in ({workItemsList}) returned {idQueryResults.Count} values");
+            // Can get multiple work items by using a wiql query
+            string wiql = $"Select [System.Id], [System.Title], [System.State] From WorkItems Where [System.Id] In ({workItemsList})";
+            WorkItemCollection wiqlQueryResults = WIStore.Query(wiql);
+            Console.WriteLine($"Wiql query searching for work items in ({workItemsList}) returned {wiqlQueryResults.Count} values");
+            Console.WriteLine();
+
+            // Alternatively, you can specify the ids as a collection, and a wiql for columns to return
+            string columnWiql = $"Select [System.Id], [System.Title], [System.State] From WorkItems ";
+            WorkItemCollection idAndColumnWiqlResults = WIStore.Query(WorkItemsAdded.ToArray(), columnWiql);
+            Console.WriteLine($"Query searching for work items in ({workItemsList}) returned {idAndColumnWiqlResults.Count} values");
             Console.WriteLine();
         }
 
@@ -95,11 +102,16 @@ namespace MigrationGuide
         {
             var wi = WIStore.GetWorkItem(WorkItemsAdded.First());
             var originalTitle = wi.Title;
+            var originalDescription = wi["System.Description"];
+
             var changedTitle = "Changed Work Item Title";
+            var changedDescription = "Changed Description";
             wi.Title = changedTitle;
+            wi["System.Description"] = changedDescription;
+
             wi.Save();
             Console.WriteLine($"Updated Existing Work Item: '{wi.Id}'. Work Item title was: '{originalTitle}', but is now '{wi.Title}'");
-            wi.Close();
+            Console.WriteLine($"Updated Existing Work Item: '{wi.Id}'. Work Item description was: '{originalDescription}', but is now '{wi["System.Description"] }'");
             Console.WriteLine();
         }
 
@@ -113,7 +125,7 @@ namespace MigrationGuide
         public void ValidateWorkItem()
         {
             // Construct a WorkItem, but don't set the required Title field.
-            WorkItemType workItemType = TeamProject.WorkItemTypes["User Story"];
+            WorkItemType workItemType = TeamProject.WorkItemTypes[DefaultWorkItemType.Name];
 
             WorkItem wi = new WorkItem(workItemType);
 
@@ -193,8 +205,7 @@ namespace MigrationGuide
             var firstWorkItem = WIStore.GetWorkItem(WorkItemsAdded.First());
 
             // Create a new work item
-            var bugWorkItemType = TeamProject.WorkItemTypes["Bug"];
-            var secondWorkItem = new WorkItem(bugWorkItemType)
+            var secondWorkItem = new WorkItem(DefaultWorkItemType)
             {
                 Title = "Second work item created"
             };
@@ -205,7 +216,8 @@ namespace MigrationGuide
             var linkTypeEnds = WIStore.WorkItemLinkTypes.LinkTypeEnds;
 
             // Create a new work item type link with the specified type and the work item to point to
-            var relatedLinkTypeEnd = linkTypeEnds["related"];
+            // Access WorkItemLinkTypeEnd by specifying ImmutableName as index
+            var relatedLinkTypeEnd = linkTypeEnds["System.LinkTypes.Related-Forward"];
             var workItemLink = new WorkItemLink(relatedLinkTypeEnd, secondWorkItem.Id);
 
             // Add the work item link to the desired work item and save
@@ -214,12 +226,10 @@ namespace MigrationGuide
 
             Console.WriteLine($"Added a link from existing work item '{secondWorkItem.Id}' to '{firstWorkItem.Id}.' Work Item: '{firstWorkItem.Id}' contains a link to '{secondWorkItem.Id}': {firstWorkItem.Links.Contains(workItemLink)}");
             firstWorkItem.Links.Contains(workItemLink);
-            firstWorkItem.Close();
-            secondWorkItem.Close();
             Console.WriteLine();
         }
 
-        // Client OM Method: WorkItem.History
+        // Client OM Method: WorkItem.History or WorkItem["System.History"]
         // Client OM Documentation: https://docs.microsoft.com/en-us/previous-versions/visualstudio/visual-studio-2013/bb164807(v%3dvs.120)
         // REST Equivalent:
         //      HTTP: PATCH https://dev.azure.com/fabrikam/_apis/wit/workitems/{id}?api-version=5.0
@@ -237,11 +247,17 @@ namespace MigrationGuide
         public void AddComment()
         {
             var wi = WIStore.GetWorkItem(WorkItemsAdded.First());
+
+            // The value for field 'System.History' at the current revision is always an empty string.
+            var currentHistoryValue = wi.History;
+            Console.WriteLine($"WorkItem History is empty at the current revision: '{String.IsNullOrEmpty(currentHistoryValue)}'");
+
             var commentToAdd = "Added a new comment";
             wi.History = commentToAdd;
             wi.Save();
+
+            // In the WIT model, when the history field is saved, the recent change is persisted in the previous revision and current revision becomes empty.
             Console.WriteLine($"Updated Existing Work Item: '{wi.Id}'. Added comment: '{wi.Revisions[wi.Revisions.Count - 1].Fields[CoreField.History].Value}' to last revision");
-            wi.Close();
             Console.WriteLine();
         }
 
@@ -283,7 +299,6 @@ namespace MigrationGuide
             wi.Links.Add(hlink);
             wi.Save();
             Console.WriteLine($"Updated Existing Work Item: '{wi.Id}'. Added hyperlink: '{hlink.Location}'");
-            wi.Close();
             Console.WriteLine();
         }
 
@@ -336,39 +351,6 @@ namespace MigrationGuide
             wi.Attachments.Add(newAttachment);
             wi.Save();
             Console.WriteLine($"Updated Existing Work Item: '{wi.Id}'. Added attachment: '{newAttachment.Name}'");
-            wi.Close();
-            Console.WriteLine();
-        }
-
-        // Client OM Method: WorkItemStore.Query()
-        // Client OM Documentation: https://docs.microsoft.com/en-us/previous-versions/visualstudio/visual-studio-2013/bb140399%28v%3dvs.120%29
-        // REST Equivalent: GET https://dev.azure.com/{organization}/{project}/{team}/_apis/wit/wiql/{id}?api-version=5.0
-        // REST Documentation: https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/wiql/query%20by%20id?view=azure-devops-rest-5.0
-        [Obsolete]
-        public void QueryById()
-        {
-            // Get an existing query and associated ID for proof of concept.
-            QueryHierarchy queryHierarchy = TeamProject.QueryHierarchy;
-            var queryFolder = queryHierarchy as QueryFolder;
-            QueryItem queryItem = queryFolder["My Queries"];
-            var myQueriesFolder = queryItem as QueryFolder;
-            var firstQueryId = myQueriesFolder.First().Id;
-            var queryDefinitionById = WIStore.GetQueryDefinition(firstQueryId);
-
-            // Query by ID and process results
-            WorkItemCollection queryResults = WIStore.Query(queryDefinitionById.QueryText.Replace("@project", $"'{TeamProject.Name}'"));
-            Console.WriteLine($"The stored query returned {queryResults.Count} results:");
-            if (queryResults.Count > 0)
-            {
-                foreach (WorkItem result in queryResults)
-                {
-                    Console.WriteLine($"WorkItem Id: '{result.Id}' Title: '{result.Title}'");
-                }
-            }
-            else
-            {
-                Console.WriteLine($"Query with id:'{firstQueryId}' did not return any results.");
-            }
             Console.WriteLine();
         }
 
@@ -379,13 +361,63 @@ namespace MigrationGuide
         [Obsolete]
         public void QueryByWiql()
         {
-            string queryByTypeWiql = $"Select [System.Id], [System.Title], [System.State] From WorkItems Where [System.WorkItemType] = 'Bug' and [System.TeamProject] = '{TeamProject.Name}'";
+            string queryByTypeWiql = $"Select [System.Id], [System.Title], [System.State] From WorkItems Where [System.WorkItemType] = '{DefaultWorkItemType.Name}' and [System.TeamProject] = '{TeamProject.Name}'";
             WorkItemCollection typeQueryResults = WIStore.Query(queryByTypeWiql);
             Console.WriteLine($"The wiql query returned {typeQueryResults.Count} results:");
             foreach (WorkItem result in typeQueryResults)
             {
                 Console.WriteLine($"WorkItem Id: '{result.Id}' Title: '{result.Title}'");
             }
+            Console.WriteLine();
+        }
+
+        // Client OM Method: WorkItemStore.Query()
+        // Client OM Documentation: https://docs.microsoft.com/en-us/previous-versions/visualstudio/visual-studio-2013/bb140399%28v%3dvs.120%29
+        // REST Equivalent: GET https://dev.azure.com/{organization}/{project}/{team}/_apis/wit/wiql/{id}?api-version=5.0
+        // REST Documentation: https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/wiql/query%20by%20id?view=azure-devops-rest-5.0
+        [Obsolete]
+        public void QueryById()
+        {
+            // Querying by ID doesn't really exist in the WIT model like it does in REST.
+            // In this case, we are looking up the query definition by its ID and then creating a new Query with its corresponding wiql
+
+            // Get an existing query and associated ID for proof of concept. If we already have a query guid, we can skip this block.
+            QueryHierarchy queryHierarchy = TeamProject.QueryHierarchy;
+            var queryFolder = queryHierarchy as QueryFolder;
+            QueryItem queryItem = queryFolder?.Where(f => f.IsPersonal).FirstOrDefault();
+            QueryFolder myQueriesFolder = queryItem as QueryFolder;
+
+            if (myQueriesFolder != null && myQueriesFolder.Count > 0)
+            {
+                var queryId = myQueriesFolder.First().Id; // Replace this value with your query id
+
+                // Get the query definition
+                var queryDefinitionById = WIStore.GetQueryDefinition(queryId);
+                var context = new Dictionary<string, string>() { { "project", TeamProject.Name } };
+
+                // Obtain query results using the query definition's QueryText
+                Query obj = new Query(this.WIStore, queryDefinitionById.QueryText, context);
+                WorkItemCollection queryResults = obj.RunQuery();
+                Console.WriteLine($"Query with name: '{queryDefinitionById.Name}' and id: '{queryDefinitionById.Id}' returned {queryResults.Count} results:");
+                if (queryResults.Count > 0)
+                {
+                    foreach (WorkItem result in queryResults)
+                    {
+                        Console.WriteLine($"WorkItem Id: '{result.Id}' Title: '{result.Title}'");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"Query with name: '{queryDefinitionById.Name}' and id: '{queryDefinitionById.Id}' did not return any results.");
+                    Console.WriteLine($"Try assigning work items to yourself or following work items and run the sample again.");
+                }
+            }
+
+            else
+            {
+                Console.WriteLine("My Queries haven't been populated yet. Open up the Queries page in the browser to populate these, and then run the sample again.");
+            }
+
             Console.WriteLine();
         }
 
@@ -415,15 +447,15 @@ namespace MigrationGuide
         {
             CategoryCollection categories = TeamProject.Categories;
 
-            // Can get a category via index, name, or Enumerable methods on Categories collection.
+            // Can get a category via index, reference name, or Enumerable methods on Categories collection.
             var categoriesCount = categories.Count;
-            var categoryName = "Requirement Category";
+            var categoryReferenceName = DefaultCategoryReferenceName;
             var lastCategory = categories[categoriesCount - 1];
-            Console.WriteLine($"Category at index: '{categoriesCount - 1}' in Project: '{TeamProject.Name}' is: '{lastCategory.Name}'");
-            var namedCategory = categories[categoryName];
-            Console.WriteLine($"Category with name: '{categoryName}' in Project: '{TeamProject.Name}' is: '{namedCategory.Name}'");
+            Console.WriteLine($"Category at index: '{categoriesCount - 1}' in Project: '{TeamProject.Name}' has name: '{lastCategory.Name}'");
+            var namedCategory = categories[categoryReferenceName];
+            Console.WriteLine($"Category with reference name: '{categoryReferenceName}' in Project: '{TeamProject.Name}' has name: '{namedCategory.Name}'");
             var firstCategory = categories.First();
-            Console.WriteLine($"Category accessed via First() in Project: '{TeamProject.Name}' is: '{firstCategory.Name}'");
+            Console.WriteLine($"Category accessed via First() in Project: '{TeamProject.Name}' has name: '{firstCategory.Name}'");
             Console.WriteLine();
         }
 
@@ -439,7 +471,7 @@ namespace MigrationGuide
             Console.WriteLine($"Project: '{TeamProject.Name}' has the following {typesCount} types:");
             foreach (WorkItemType type in types)
             {
-                Console.WriteLine(type.Name);
+                Console.WriteLine($"Name: '{type.Name}' - Description: '{type.Description}'");
             }
             Console.WriteLine();
         }
@@ -451,15 +483,14 @@ namespace MigrationGuide
         [Obsolete]
         public void GetWorkItemType()
         {
-            var category = TeamProject.Categories.First();
-            var categoryWorkItemTypes = category.WorkItemTypes.ToList();
+            var categoryWorkItemTypes = DefaultWorkItemTypeCategory.WorkItemTypes.ToList();
 
-            // Can get a type via index or Enumerable methods on Categories collection.
+            // Can get a type via index or Enumerable methods on WorkItemTypes collection.
             var typesCount = categoryWorkItemTypes.Count();
             var lastType = categoryWorkItemTypes[typesCount - 1];
-            Console.WriteLine($"Type at index: '{typesCount - 1}' in Project: '{TeamProject.Name}' for Category: '{category.Name}' is: '{lastType.Name}'");
-            var firstCategory = categoryWorkItemTypes.First();
-            Console.WriteLine($"Type accessed via via First() on Category: '{category.Name}' in Project: '{TeamProject.Name}' is: '{firstCategory.Name}'");
+            Console.WriteLine($"Type at index: '{typesCount - 1}' in Project: '{TeamProject.Name}' for Category: '{DefaultWorkItemTypeCategory.Name}' is: '{lastType.Name}'");
+            var firstType = categoryWorkItemTypes.First();
+            Console.WriteLine($"Type accessed via via First() on Category: '{DefaultWorkItemTypeCategory.Name}' in Project: '{TeamProject.Name}' is: '{firstType.Name}'");
             Console.WriteLine();
         }
 
@@ -470,12 +501,10 @@ namespace MigrationGuide
         [Obsolete]
         public void GetWorkItemTypeFields()
         {
-            var category = TeamProject.Categories.First();
-            var workItemType = category.WorkItemTypes.First();
-            var workItemTypeFieldDefinitions = workItemType.FieldDefinitions;
+            var workItemTypeFieldDefinitions = DefaultWorkItemType.FieldDefinitions;
             var fieldDefinitionsCount = workItemTypeFieldDefinitions.Count;
 
-            Console.WriteLine($"Work Item Type: '{workItemType.Name}' in Category: '{category.Name}' in Project: '{TeamProject.Name}' has the following {fieldDefinitionsCount} Field Definitions:");
+            Console.WriteLine($"Work Item Type: '{DefaultWorkItemType.Name}' in Category: '{DefaultWorkItemTypeCategory.Name}' in Project: '{TeamProject.Name}' has the following {fieldDefinitionsCount} Field Definitions:");
             foreach (FieldDefinition fd in workItemTypeFieldDefinitions)
             {
                 Console.WriteLine(fd.Name);
@@ -491,23 +520,20 @@ namespace MigrationGuide
         [Obsolete]
         public void GetWorkItemTypeField()
         {
-            var category = TeamProject.Categories.First();
-            var workItemType = category.WorkItemTypes.First();
+            var workItemType = DefaultWorkItemType;
             var workItemTypeFieldDefinitions = workItemType.FieldDefinitions;
             var fieldDefinitionsCount = workItemTypeFieldDefinitions.Count;
 
-            // Can access field definition by CoreField, index, name, or IEnumerable 
-            var coreFieldValue = CoreField.AreaId;
-            var namedFieldValue = "Title";
-            var indexedFieldValue = fieldDefinitionsCount - 1;
-            var coreFieldDefinition = workItemTypeFieldDefinitions[coreFieldValue];
-            var namedFieldDefinition = workItemTypeFieldDefinitions[namedFieldValue];
-            var lastFieldDefinition = workItemTypeFieldDefinitions[indexedFieldValue];
+            // Can access field definitions by index, or reference name
+            var referenceNameField = "System.Title";
+            var indexedField = fieldDefinitionsCount - 1;
+            var referenceNameFieldDefinition = workItemTypeFieldDefinitions[referenceNameField];
+            var lastFieldDefinition = workItemTypeFieldDefinitions[indexedField];
 
-            Console.WriteLine($"Field definition with CoreField: '{coreFieldValue}' for Work Item Type: '{workItemType.Name}' in Category: '{category.Name}' in Project: '{TeamProject.Name}' is: '{coreFieldDefinition.Name}' ");
-            Console.WriteLine($"Field definition with name: '{namedFieldValue}' for Work Item Type: '{workItemType.Name}' in Category: '{category.Name}' in Project: '{TeamProject.Name}' is: '{namedFieldDefinition.Name}' ");
-            Console.WriteLine($"Field definition at index: '{indexedFieldValue}' for Work Item Type: '{workItemType.Name}' in Category: '{category.Name}' in Project: '{TeamProject.Name}' is: '{lastFieldDefinition.Name}' ");
-
+            Console.WriteLine($"Obtained work item type field information for '{referenceNameField}' in Category: '{DefaultWorkItemTypeCategory.Name}' in Project: '{TeamProject.Name}' using WIT Client OM.");
+            Console.WriteLine($"\tField definition for '{referenceNameField}' has the following properties - Name: '{referenceNameFieldDefinition.Name}', Reference Name: '{referenceNameFieldDefinition.ReferenceName}', Field Type: '{referenceNameFieldDefinition.FieldType.ToString()}'");
+            Console.WriteLine($"Obtained work item type field information for field at index '{indexedField}' in Category: '{DefaultWorkItemTypeCategory.Name}' in Project: '{TeamProject.Name}' using WIT Client OM.");
+            Console.WriteLine($"\tField definition for '{indexedField}' has the following properties - Name: '{lastFieldDefinition.Name}', Reference Name: '{lastFieldDefinition.ReferenceName}', Field Type: '{lastFieldDefinition.FieldType.ToString()}'");
             Console.WriteLine();
         }
     }

@@ -497,7 +497,7 @@ namespace MigrationGuide
         // Client OM Method: WorkItemType.FieldDefinitions
         // Client OM Documentation: https://docs.microsoft.com/en-us/previous-versions/visualstudio/visual-studio-2013/bb164788%28v%3dvs.120%29
         // REST Equivalent: GET https://dev.azure.com/{organization}/{project}/_apis/wit/workitemtypes/{type}/fields?api-version=5.0
-        // REST Documentation: https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/work%20item%20types%20field/get?view=azure-devops-rest-5.0
+        // REST Documentation: https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/work%20item%20types%20field/list?view=azure-devops-rest-5.0
         [Obsolete]
         public void GetWorkItemTypeFields()
         {

@@ -23,7 +23,8 @@ This guide is to help you migrate your .NET code from using [WIT Client OM](http
 
 # Resources
 
-- [Migration guide with code samples](https://github.com/Microsoft/azure-devops-wit-client-om-migration-guide)
+- [Deprecation of the Work Item Tracking (WIT) and Test Client OM](https://docs.microsoft.com/en-us/azure/devops/integrate/concepts/wit-client-om-deprecation?view=azure-devops)
+- [Migration guide documentation](https://docs.microsoft.com/en-us/azure/devops/integrate/concepts/migration-guide?view=azure-devops)
 - [Work Item Tracking REST API documentation](https://docs.microsoft.com/en-us/rest/api/azure/devops/wit/?view=azure-devops-rest-5.0)
 
 # Support
